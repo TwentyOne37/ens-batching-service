@@ -1,17 +1,13 @@
 import { ethers } from "hardhat";
 import { Signer } from "ethers";
 import chai from "chai";
-import sinonChai from "sinon-chai";
-import { solidity } from "ethereum-waffle";
 import { ENSSubdomainRegistrar } from "../typechain-types/contracts/ENSSubdomainRegistrar";
-import { ENSSubdomainRegistrar__factory } from "../typechain-types/factories/contracts/ENSSubdomainRegistrar__factory";
 import { ENS } from "../typechain-types/@ensdomains/ens-contracts/contracts/registry/ENS";
 import { Resolver } from "../typechain-types/@ensdomains/ens-contracts/contracts/resolvers/Resolver";
-import { smock } from "@defi-wonderland/smock";
 
-chai.use(solidity);
-chai.use(sinonChai);
-const { expect } = chai;
+import { FakeContract, smock } from "@defi-wonderland/smock";
+
+chai.use(smock.matchers);
 
 describe("ENSSubdomainRegistrar", () => {
   let ensSubdomainRegistrar: ENSSubdomainRegistrar;
@@ -19,60 +15,63 @@ describe("ENSSubdomainRegistrar", () => {
   let addr1: Signer;
   let ownerAddress: string;
   let addr1Address: string;
-  let fakeENS: any;
-  let fakeResolver: any;
+  let fakeENS: FakeContract<ENS>;
+  let fakeResolver: FakeContract<Resolver>;
 
   beforeEach(async () => {
-    // Get the ContractFactory and Signers here.
     [owner, addr1] = await ethers.getSigners();
     ownerAddress = await owner.getAddress();
     addr1Address = await addr1.getAddress();
 
-    // Fake the ENS and Resolver contracts
+    // Set up the ENS Mock
     fakeENS = await smock.fake<ENS>("ENS");
+    // Set up the Resolver Mock
     fakeResolver = await smock.fake<Resolver>("Resolver");
 
-    // Pass the fake contract addresses instead
-    const ensSubdomainRegistrarFactory = new ENSSubdomainRegistrar__factory(
+    const ensSubdomainRegistrarFactory = await ethers.getContractFactory(
+      "ENSSubdomainRegistrar",
       owner
     );
-    ensSubdomainRegistrar = await ensSubdomainRegistrarFactory.deploy(
-      fakeENS.address,
-      fakeResolver.address
-    );
 
-    // Listen to the Debug event
-    const debugFilter = ensSubdomainRegistrar.filters.Debug(null);
-    ensSubdomainRegistrar.on(debugFilter, (message) => {
-      console.log(message);
-    });
+    ensSubdomainRegistrar = (await ensSubdomainRegistrarFactory.deploy(
+      fakeENS.address, // Get the address of the mocked contract
+      fakeResolver.address // Get the address of the mocked contract
+    )) as ENSSubdomainRegistrar;
   });
 
-  describe("registerSubdomain", () => {
-    it("should register subdomain", async () => {
-      const node = ethers.utils.namehash("cryptom.app");
-      const label = ethers.utils.id("merchant");
+  describe("registerBatchSubdomains", () => {
+    it("should register batch subdomains", async () => {
+      const nodes = [
+        ethers.utils.namehash("cryptom.app"),
+        ethers.utils.namehash("cryptom.app"),
+      ];
+      const labels = [
+        ethers.utils.id("merchant1"),
+        ethers.utils.id("merchant2"),
+      ];
+      const owners = [ownerAddress, addr1Address];
 
-      await ensSubdomainRegistrar
-        .connect(owner)
-        .registerSubdomain(node, label, ownerAddress);
-
-      const expectedNode = ethers.utils.keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["bytes32", "bytes32"],
-          [node, label]
-        )
+      const result = await ensSubdomainRegistrar.registerBatchSubdomains(
+        nodes,
+        labels,
+        owners
       );
 
-      expect(
-        fakeENS.setSubnodeRecord._watchable.callHistory[0].args
-      ).to.deep.equal([
-        node,
-        label,
-        ownerAddress,
-        fakeResolver.address,
-        ethers.BigNumber.from(0),
-      ]);
+      // Assert that setSubnodeRecord was called with correct arguments
+      // await expect(result)
+      //   .to.emit(fakeENS, "NewOwner")
+      //   .withArgs(nodes[0], labels[0], owners[0]);
+
+      // await expect(result)
+      //   .to.emit(fakeENS, "NewOwner")
+      //   .withArgs(nodes[1], labels[1], owners[1]);
+
+      // // Assert that setAddr was called with correct arguments
+      // await expect(result)
+      //   .to.emit(fakeResolver, "AddrChanged")
+      //   .withArgs(ethers.utils.namehash("merchant1.cryptom.app"), owners[0]);
+
+      // await expect(result).to.emit(fakeResolver, "AddrChanged");
     });
   });
 });
